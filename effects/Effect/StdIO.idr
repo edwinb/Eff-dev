@@ -9,10 +9,10 @@ import Control.IOExcept
 
 ||| The internal representation of StdIO effects
 data StdIO : Effect where
-     PutStr : String -> { () } StdIO () 
-     GetStr : { () } StdIO String 
-     PutCh : Char -> { () } StdIO ()
-     GetCh : { () } StdIO Char
+     PutStr : String -> sig StdIO () 
+     GetStr : sig StdIO String 
+     PutCh : Char -> sig StdIO ()
+     GetCh : sig StdIO Char
 
 
 -------------------------------------------------------------

@@ -5,8 +5,8 @@ import Effects
 %access public
 
 data State : Effect where
-  Get :      { a }       State a
-  Put : b -> { a ==> b } State () 
+  Get :      sig State a  a
+  Put : b -> sig State () a b
 
 -- using (m : Type -> Type)
 instance Handler State m where
@@ -16,13 +16,13 @@ instance Handler State m where
 STATE : Type -> EFFECT
 STATE t = MkEff t State
 
-get : { [STATE x] } Eff x
+get : Proto x [STATE x]
 get = call $ Get
 
-put : x -> { [STATE x] } Eff () 
+put : x -> Proto () [STATE x]
 put val = call $ Put val
 
-putM : y -> { [STATE x] ==> [STATE y] } Eff () 
+putM : y -> Proto () [trans (STATE x) (STATE y)]
 putM val = call $ Put val
 
 update : (x -> x) -> { [STATE x] } Eff () 
