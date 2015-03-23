@@ -3,6 +3,7 @@ module Effects
 import Language.Reflection
 import public Effect.Default
 import Data.Vect
+import Control.Monad.State
 
 --- Effectful computations are described as algebraic data types that
 --- explain how an effect is interpreted in some underlying context.
@@ -22,7 +23,7 @@ Effect = (x : Type) -> Type -> (x -> Type) -> Type
 ||| description into a concrete effect.
 %error_reverse
 data EFFECT : Type where
-     MkEff : Type -> Effect -> EFFECT
+     MkEff     : Type -> Effect -> EFFECT
 
 ||| Handler classes describe how an effect `e` is translated to the
 ||| underlying computation context `m` for execution.
@@ -39,21 +40,6 @@ class Handler (e : Effect) (m : Type -> Type) where
 resourceType : EFFECT -> Type
 resourceType (MkEff t e) = t
 
--- --------------------------------------------------------- [ Syntactic Sugar ]
-
--- A bit of syntactic sugar ('syntax' is not very flexible so we only go
--- up to a small number of parameters...)
-
--- No state transition
-syntax "{" [inst] "}" [eff] = eff inst (\result => inst)
-
--- The state transition is dependent on a result `b`, a bound variable.
-syntax "{" [inst] "==>" "{" {b} "}" [outst] "}" [eff]
-       = eff inst (\b => outst)
-
---- A simple state transition
-syntax "{" [inst] "==>" [outst] "}" [eff] = eff inst (\result => outst)
-
 -- --------------------------------------- [ Properties and Proof Construction ]
 data SubList : List a -> List a -> Type where
      SubNil : SubList [] []
@@ -64,6 +50,8 @@ subListId : SubList xs xs
 subListId {xs = Nil} = SubNil
 subListId {xs = x :: xs} = Keep subListId
 
+infixr 5 :!
+
 namespace Env
   data Env  : (m : Type -> Type) -> List EFFECT -> Type where
        Nil  : Env m Nil
@@ -73,6 +61,10 @@ data EffElem : Effect -> Type ->
                List EFFECT -> Type where
      Here : EffElem x a (MkEff a x :: xs)
      There : EffElem x a xs -> EffElem x a (y :: xs)
+
+getEff : (xs : List EFFECT) -> EffElem e a xs -> EFFECT
+getEff (e@(MkEff a x) :: ys) Here = e 
+getEff (y :: ys) (There x) = getEff ys x
 
 ||| make an environment corresponding to a sub-list
 dropEnv : Env m ys -> SubList xs ys -> Env m xs
@@ -128,31 +120,42 @@ relabel {xs = []} l [] = []
 relabel {xs = (MkEff a e :: xs)} l (v :: vs) = (l := v) :: relabel l vs
 
 -- ------------------------------------------------- [ The Language of Effects ]
+
+-- class NewEffect (e : Effect) a b where
+--   new :  
+
 ||| Definition of a language of effectful programs.
 |||
 ||| @ x The return type of the result.
 ||| @ es The list of allowed side-effects.
 ||| @ ce Function to compute a new list of allowed side-effects.
-data Eff : (x : Type)
-           -> (es : List EFFECT)
-           -> (ce : x -> List EFFECT) -> Type where
-     value    : (val : a) -> Eff a (xs val) xs
-     ebind    : Eff a xs xs' ->
-                ((val : a) -> Eff b (xs' val) xs'') -> Eff b xs xs''
+data EffT : (m : Type -> Type) -> 
+            (x : Type)
+            -> (es : List EFFECT)
+            -> (ce : x -> List EFFECT) -> Type where
+     value    : (val : a) -> EffT m a (xs val) xs
+     ebind    : EffT m a xs xs' ->
+                ((val : a) -> EffT m b (xs' val) xs'') -> EffT m b xs xs''
      callP    : (prf : EffElem e a xs) ->
                 (eff : e t a b) ->
-                Eff t xs (\v => updateResTy v xs prf eff)
+                EffT m t xs (\v => updateResTy v xs prf eff)
 
      liftP    : (prf : SubList ys xs) ->
-                Eff t ys ys' -> Eff t xs (\v => updateWith (ys' v) xs prf)
+                EffT m t ys ys' -> 
+                EffT m t xs (\v => updateWith (ys' v) xs prf)
+
+     rec      : Inf (EffT m t xs xs') -> EffT m t xs xs'
 
      (:-)     : (l : ty) ->
-                Eff t [x] xs' -> -- [x] (\v => xs) ->
-                Eff t [l ::: x] (\v => map (l :::) (xs' v))
+                EffT m t [x] xs' -> -- [x] (\v => xs) ->
+                EffT m t [l ::: x] (\v => map (l :::) (xs' v))
+
+Eff : (x : Type) -> (es : List EFFECT) -> (ce : x -> List EFFECT) -> Type
+Eff x es ce = {m : Type -> Type} -> EffT m x es ce
 
 %no_implicit
-(>>=)   : Eff a xs xs' ->
-          ((val : a) -> Eff b (xs' val) xs'') -> Eff b xs xs''
+(>>=)   : EffT m a xs xs' ->
+          ((val : a) -> EffT m b (xs' val) xs'') -> EffT m b xs xs''
 (>>=) = ebind
 
 -- namespace SimpleBind
@@ -161,30 +164,30 @@ data Eff : (x : Type)
 --   (>>=) = ebind
 
 ||| Run a subprogram which results in an effect state the same as the input.
-staticEff : Eff a xs (\v => xs) -> Eff a xs (\v => xs)
+staticEff : EffT m a xs (\v => xs) -> EffT m a xs (\v => xs)
 staticEff = id
 
 ||| Explicitly give the expected set of result effects for an effectful
 ||| operation.
-toEff : .(xs' : List EFFECT) -> Eff a xs (\v => xs') -> Eff a xs (\v => xs')
+toEff : .(xs' : List EFFECT) -> EffT m a xs (\v => xs') -> EffT m a xs (\v => xs')
 toEff xs' = id
 
-return : a -> Eff a xs (\v => xs)
+return : a -> EffT m a xs (\v => xs)
 return x = value x
 
 -- ------------------------------------------------------ [ for idiom brackets ]
 
-infixl 2 <$>
+infixl 2 <*>
 
-pure : a -> Eff a xs (\v => xs)
+pure : a -> EffT m a xs (\v => xs)
 pure = value
 
-pureM : (val : a) -> Eff a (xs val) xs
+pureM : (val : a) -> EffT m a (xs val) xs
 pureM = value
 
-(<$>) : Eff (a -> b) xs (\v => xs) ->
-        Eff a xs (\v => xs) -> Eff b xs (\v => xs)
-(<$>) prog v = do fn <- prog
+(<*>) : EffT m (a -> b) xs (\v => xs) ->
+        EffT m a xs (\v => xs) -> EffT m b xs (\v => xs)
+(<*>) prog v = do fn <- prog
                   arg <- v
                   return (fn arg)
 
@@ -203,7 +206,8 @@ execEff {e} {a} {res} {resk} (val :: env) (There p) eff k
 -- Q: Instead of m b, implement as StateT (Env m xs') m b, so that state
 -- updates can be propagated even through failing computations?
 
-eff : Env m xs -> Eff a xs xs' -> ((x : a) -> Env m (xs' x) -> m b) -> m b
+eff : Env m xs -> EffT m a xs xs' -> 
+      ((x : a) -> Env m (xs' x) -> m b) -> m b
 eff env (value x) k = k x env
 eff env (prog `ebind` c) k
    = eff env prog (\p', env' => eff env' (c p') k)
@@ -235,14 +239,14 @@ call : {a, b: _} -> {e : Effect} ->
        (eff : e t a b) ->
        {default tactics { search 100; }
           prf : EffElem e a xs} ->
-      Eff t xs (\v => updateResTy v xs prf eff)
+      EffT m t xs (\v => updateResTy v xs prf eff)
 call e {prf} = callP prf e
 
 implicit
-lift : Eff t ys ys' ->
+lift : EffT m t ys ys' ->
        {default tactics { search 100; }
           prf : SubList ys xs} ->
-       Eff t xs (\v => updateWith (ys' v) xs prf)
+       EffT m t xs (\v => updateWith (ys' v) xs prf)
 lift e {prf} = liftP prf e
 
 
@@ -255,7 +259,7 @@ lift e {prf} = liftP prf e
 |||
 ||| @prog The effectful program to run.
 run : Applicative m => {default MkDefaultEnv env : Env m xs}
-    -> (prog : Eff a xs xs') -> m a
+    -> (prog : EffT m a xs xs') -> m a
 run {env} prog = eff env prog (\r, env => pure r)
 
 ||| Run an effectful program in the identity context.
@@ -264,7 +268,7 @@ run {env} prog = eff env prog (\r, env => pure r)
 ||| The `env` argument is implicit and initialised automatically.
 |||
 ||| @prog The effectful program to run.
-runPure : {default MkDefaultEnv env : Env id xs} -> (prog : Eff a xs xs') -> a
+runPure : {default MkDefaultEnv env : Env id xs} -> (prog : EffT id a xs xs') -> a
 runPure {env} prog = eff env prog (\r, env => r)
 
 ||| Run an effectful program in a given context `m` with a default value for the environment.
@@ -273,7 +277,7 @@ runPure {env} prog = eff env prog (\r, env => r)
 |||
 ||| @env The environment to use.
 ||| @prog The effectful program to run.
-runInit : Applicative m => (env : Env m xs) -> (prog : Eff a xs xs') -> m a
+runInit : Applicative m => (env : Env m xs) -> (prog : EffT m a xs xs') -> m a
 runInit env prog = eff env prog (\r, env => pure r)
 
 ||| Run an effectful program with a given default value for the environment.
@@ -282,33 +286,15 @@ runInit env prog = eff env prog (\r, env => pure r)
 |||
 ||| @env The environment to use.
 ||| @prog The effectful program to run.
-runPureInit : (env : Env id xs) -> (prog : Eff a xs xs') -> a
+runPureInit : (env : Env id xs) -> (prog : EffT id a xs xs') -> a
 runPureInit env prog = eff env prog (\r, env => r)
 
-runWith : (a -> m a) -> Env m xs -> Eff a xs xs' -> m a
+runWith : (a -> m a) -> Env m xs -> EffT m a xs xs' -> m a
 runWith inj env prog = eff env prog (\r, env => inj r)
 
-runEnv : Applicative m => Env m xs -> Eff a xs xs' ->
+runEnv : Applicative m => Env m xs -> EffT m a xs xs' ->
          m (x : a ** Env m (xs' x))
 runEnv env prog = eff env prog (\r, env => pure (r ** env))
-
--- ----------------------------------------------- [ some higher order things ]
-
-mapE : (a -> {xs} Eff b) -> List a -> {xs} Eff (List b)
-mapE f []        = pure []
-mapE f (x :: xs) = [| f x :: mapE f xs |]
-
-
-mapVE : (a -> {xs} Eff b) ->
-        Vect n a ->
-        {xs} Eff (Vect n b)
-mapVE f []        = pure []
-mapVE f (x :: xs) = [| f x :: mapVE f xs |]
-
-
-when : Bool -> Lazy ({xs} Eff ()) -> {xs} Eff ()
-when True  e = Force e
-when False e = pure ()
 
 -- ------------------------------------------------------------ [ Notation ]
 
@@ -323,15 +309,16 @@ namespace NoResourceEffect
   sig e r = e r () (\v => ())
 
 namespace NoUpdateEffect
-  sig : Effect -> Type -> Type -> Type
+  sig : Effect -> (ret : Type) -> (resource : Type) -> Type
   sig e r e_in = e r e_in (\v => e_in)
 
 namespace UpdateEffect
-  sig : Effect -> Type -> Type -> Type -> Type
+  sig : Effect -> (ret : Type) -> (res_in : Type) -> (res_out : Type) -> Type
   sig e r e_in e_out = e r e_in (\v => e_out)
 
 namespace DepUpdateEffect
-  sig : Effect -> (x : Type) -> Type -> (x -> Type) -> Type
+  sig : Effect -> 
+        (ret : Type) -> (res_in : Type) -> (res_out : ret -> Type) -> Type
   sig e r e_in e_out = e r e_in e_out
 
 
@@ -357,8 +344,8 @@ namespace DepUpdateTrans
   trans : EFFECT -> (x -> EFFECT) -> EffTrans x
   trans s t = s :=> t
 
-Proto : (x : Type) -> List (EffTrans x) -> Type
-Proto x xs = Eff x (proto_in xs) (\val : x => proto_out xs val)
+EffsT : (m : Type -> Type) -> (x : Type) -> List (EffTrans x) -> Type
+EffsT m x xs = EffT m x (proto_in xs) (\val : x => proto_out xs val)
   where
     proto_out : List (EffTrans x) -> x -> List EFFECT
     proto_out [] val = []
@@ -369,4 +356,24 @@ Proto x xs = Eff x (proto_in xs) (\val : x => proto_out xs val)
     proto_in [] = []
     proto_in ((e_in :=> e_out) :: xs) 
         = let rec = proto_in xs in e_in :: rec 
+
+Effs : (x : Type) -> List (EffTrans x) -> Type
+Effs x xs = {m : Type -> Type} -> EffsT m x xs
+
+-- ----------------------------------------------- [ some higher order things ]
+
+-- mapE : (a -> EffsT m b xs) -> List a -> EffsT m (List b) xs
+-- mapE f []        = pure []
+-- mapE f (x :: xs) = [| f x :: mapE f xs |]
+-- 
+-- 
+-- mapVE : (a -> EffsT m b xs) ->
+--         Vect n a ->
+--         EffsT m (Vect n b) xs
+-- mapVE f []        = pure []
+-- mapVE f (x :: xs) = [| f x :: mapVE f xs |]
+
+-- when : Bool -> Lazy (EffsT m () xs) -> EffsT m () xs
+-- when True  e = Force e
+-- when False e = pure ()
 

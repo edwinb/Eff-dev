@@ -8,10 +8,10 @@ import System
 import Control.IOExcept
 
 data System : Effect where
-     Args : { () } System (List String)
-     Time : { () } System Int
-     GetEnv : String -> { () } System (Maybe String)
-     CSystem : String -> { () } System Int
+     Args : sig System (List String)
+     Time : sig System Int
+     GetEnv : String -> sig System (Maybe String)
+     CSystem : String -> sig System Int
 
 instance Handler System IO where
     handle () Args k = do x <- getArgs; k x ()
@@ -30,14 +30,14 @@ instance Handler System (IOExcept a) where
 SYSTEM : EFFECT
 SYSTEM = MkEff () System
 
-getArgs : { [SYSTEM] } Eff (List String)
+getArgs : Effs (List String) [SYSTEM]
 getArgs = call Args
 
-time : { [SYSTEM] } Eff Int
+time : Effs Int [SYSTEM]
 time = call Time
 
-getEnv : String -> { [SYSTEM] } Eff (Maybe String)
+getEnv : String -> Effs (Maybe String) [SYSTEM]
 getEnv s = call $ GetEnv s
 
-system : String -> { [SYSTEM] } Eff Int
+system : String -> Effs Int [SYSTEM]
 system s = call $ CSystem s
