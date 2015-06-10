@@ -117,30 +117,31 @@ FILE_IO t = MkEff t FileIO
 ||| @ m The file mode.
 open : (fname : String)
        -> (m : Mode)
-       -> Effs Bool [trans (FILE_IO ()) (\res => FILE_IO (case res of
-                                                      True => OpenFile m
-                                                      False => ()))]
+       -> Eff Bool [FILE_IO ()] 
+                   (\res => [FILE_IO (case res of
+                                           True => OpenFile m
+                                           False => ())])
 open f m = call $ Open f m
 
 
 ||| Close a file.
-close : Effs () [trans (FILE_IO (OpenFile m)) (FILE_IO ())]
+close : Eff () [FILE_IO (OpenFile m)] [FILE_IO ()]
 close = call $ Close
 
 ||| Read a line from the file.
-readLine : Effs String [FILE_IO (OpenFile Read)]
+readLine : Eff String [FILE_IO (OpenFile Read)]
 readLine = call $ ReadLine
 
 ||| Write a string to a file.
-writeString : String -> Effs () [FILE_IO (OpenFile Write)]
+writeString : String -> Eff () [FILE_IO (OpenFile Write)]
 writeString str = call $ WriteString str
 
 ||| Write a line to a file.
-writeLine : String -> Effs () [FILE_IO (OpenFile Write)]
+writeLine : String -> Eff () [FILE_IO (OpenFile Write)]
 writeLine str = call $ WriteString (str ++ "\n")
 
 ||| End of file?
-eof : Effs Bool [FILE_IO (OpenFile Read)]
+eof : Eff Bool [FILE_IO (OpenFile Read)]
 eof = call $ EOF
 
 -- --------------------------------------------------------------------- [ EOF ]

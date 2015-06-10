@@ -30,14 +30,14 @@ instance Handler System (IOExcept a) where
 SYSTEM : EFFECT
 SYSTEM = MkEff () System
 
-getArgs : Effs (List String) [SYSTEM]
+getArgs : Eff (List String) [SYSTEM]
 getArgs = call Args
 
-time : Effs Int [SYSTEM]
+time : Eff Int [SYSTEM]
 time = call Time
 
-getEnv : String -> Effs (Maybe String) [SYSTEM]
+getEnv : String -> Eff (Maybe String) [SYSTEM]
 getEnv s = call $ GetEnv s
 
-system : String -> Effs Int [SYSTEM]
+system : String -> Eff Int [SYSTEM]
 system s = call $ CSystem s

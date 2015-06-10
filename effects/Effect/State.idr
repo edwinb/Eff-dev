@@ -16,22 +16,22 @@ instance Handler State m where
 STATE : Type -> EFFECT
 STATE t = MkEff t State
 
-get : Effs x [STATE x]
+get : Eff x [STATE x]
 get = call $ Get
 
-put : x -> Effs () [STATE x]
+put : x -> Eff () [STATE x]
 put val = call $ Put val
 
-putM : y -> Effs () [trans (STATE x) (STATE y)]
+putM : y -> Eff () [STATE x] [STATE y]
 putM val = call $ Put val
 
-update : (x -> x) -> Effs () [STATE x] 
+update : (x -> x) -> Eff () [STATE x]
 update f = put (f !get)
 
-updateM : (x -> y) -> Effs () [trans (STATE x) (STATE y)] 
+updateM : (x -> y) -> Eff () [STATE x] [STATE y]
 updateM f = putM (f !get)
 
-locally : x -> Effs t [STATE x] -> Effs t [STATE y]
+locally : x -> (Eff t [STATE x]) -> Eff t [STATE y]
 locally newst prog = do st <- get
                         putM newst
                         val <- prog

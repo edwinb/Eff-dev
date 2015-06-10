@@ -1,10 +1,9 @@
 package effects_dev
 
-modules = Effects, Effect.Default,
+opts    = "" -- "--nobasepkgs -i ../prelude -i ../base"
+modules = Effects, Effect.Default, Effect.Monad,
 
           Effect.Exception, Effect.File, Effect.State,
           Effect.Random, Effect.StdIO, Effect.Select,
---           Effect.Memory, 
---           Effect.Conc,
-          Effect.System
+          Effect.Memory, Effect.System
 
